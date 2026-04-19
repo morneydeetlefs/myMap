@@ -6,18 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin:0; padding:0; font-family: system-ui, sans-serif; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-        .sidebar { position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.95); padding: 12px; border-radius: 8px; box-shadow: 0 2px 15px rgba(0,0,0,0.3); z-index: 1000; max-width: 270px; max-height: 85vh; overflow: auto; }
-        button, select { margin: 5px 0; padding: 8px; width: 100%; }
-        .layer-item { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+        body { margin:0; padding:0; font-family:system-ui,sans-serif; overflow:hidden; }
+        #map { position:absolute; top:0; bottom:0; left:0; right:0; }
+        .sidebar { position:absolute; top:10px; left:10px; background:rgba(255,255,255,0.95); padding:12px; border-radius:8px; box-shadow:0 2px 15px rgba(0,0,0,0.3); z-index:1000; max-width:270px; max-height:85vh; overflow:auto; }
+        button, select { margin:5px 0; padding:8px; width:100%; border-radius:4px; }
+        .layer-item { display:flex; align-items:center; gap:8px; margin:6px 0; }
     </style>
 </head>
 <body>
     <div id="map"></div>
     
     <div class="sidebar">
-        <h3>🗺️ Elysium Map (Offline Capable)</h3>
+        <h3>🗺️ Elysium Offline Map (PMTiles)</h3>
         <div id="layers-list"></div>
         <button onclick="addNewLayer()">+ New Layer</button>
         <button onclick="locateMe()">📍 GPS Location</button>
@@ -29,20 +29,19 @@
         <button onclick="document.getElementById('import-file').click()">Import GeoJSON</button>
         <input type="file" id="import-file" accept=".geojson" onchange="importData(event)" style="display:none;">
         
-        <small style="display:block; margin-top:10px; color:#555;">Tap map to add marker to selected layer.<br>Markers saved in browser (localStorage).</small>
+        <small style="display:block; margin-top:10px; color:#555;">Tap map to add marker.<br>All data saved in browser (works offline).</small>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/protomaps-leaflet@4.0.1/dist/protomaps-leaflet.js"></script>
     
     <script>
-        // === CHANGE THIS FOR YOUR BASEMAP ===
-        // For raster tiles: './tiles/{z}/{x}/{y}.png'
-        // For PMTiles: use protomapsL (add the script tag and change below)
-        const TILE_URL = './tiles/{z}/{x}/{y}.png';   // raster example
+        const PMTILES_URL = './elysium-area.pmtiles';   // ← your file name
         const CENTER = [-30.47, 30.63];
         const START_ZOOM = 13;
 
-        let map, layers = {}, layerData = {}, currentLayerName = "Default";
+        let map, pmLayer;
+        let layers = {}, layerData = {}, currentLayerName = "Default";
         let measureMode = false, measurePoints = [];
 
         function loadData() {
@@ -57,10 +56,10 @@
         function initMap() {
             map = L.map('map').setView(CENTER, START_ZOOM);
             
-            L.tileLayer(TILE_URL, {
-                maxZoom: 17,
-                minZoom: 10,
-                attribution: 'Offline tiles'
+            // Load your PMTiles file
+            pmLayer = protomapsL.leafletLayer({
+                url: PMTILES_URL,
+                flavor: "light"        // change to "dark" if you prefer
             }).addTo(map);
 
             loadData();
@@ -74,7 +73,119 @@
             });
         }
 
-        // (The rest of the functions — createLayer, addMarker, renderLayerList, toggleLayer, addNewLayer, deleteLayer, locateMe, toggleMeasure, handleMeasure, exportData, importData, saveNote, deleteMarker — are the same as in my previous raster HTML message. Copy them in if you need the full file.)
+        function createLayer(name) {
+            if (layers[name]) return;
+            layers[name] = L.layerGroup().addTo(map);
+            if (layerData[name]) {
+                layerData[name].forEach(d => {
+                    const m = L.marker([d.lat, d.lng], {draggable:true}).addTo(layers[name]);
+                    m.bindPopup(`<b>${name}</b><br><textarea>${d.note||''}</textarea><br><button onclick="saveNote(this)">Save</button> <button onclick="deleteMarker(this)">Delete</button>`);
+                    m.on('dragend', saveData);
+                });
+            }
+        }
+
+        function addMarker(latlng) {
+            const marker = L.marker(latlng, {draggable:true}).addTo(layers[currentLayerName]);
+            marker.bindPopup(`<b>${currentLayerName}</b><br><textarea placeholder="Add note..."></textarea><br><button onclick="saveNote(this)">Save</button> <button onclick="deleteMarker(this)">Delete</button>`).openPopup();
+            marker.on('dragend', saveData);
+            if (!layerData[currentLayerName]) layerData[currentLayerName] = [];
+            layerData[currentLayerName].push({lat: latlng.lat, lng: latlng.lng, note: ""});
+            saveData();
+        }
+
+        window.saveNote = function(btn) { alert("Note saved!"); saveData(); };
+        window.deleteMarker = function(btn) {
+            if (confirm("Delete this marker?")) {
+                const marker = btn.closest('.leaflet-popup')._source;
+                if (marker) marker.remove();
+                saveData();
+            }
+        };
+
+        function renderLayerList() {
+            const cont = document.getElementById('layers-list');
+            cont.innerHTML = '';
+            Object.keys(layers).forEach(name => {
+                const div = document.createElement('div');
+                div.className = 'layer-item';
+                div.innerHTML = `<input type="checkbox" checked onchange="toggleLayer('${name}', this.checked)"> <span onclick="setCurrentLayer('${name}')">${name}</span> <button onclick="deleteLayer('${name}')" style="margin-left:auto">×</button>`;
+                cont.appendChild(div);
+            });
+        }
+
+        function toggleLayer(name, show) {
+            if (show) layers[name].addTo(map); else map.removeLayer(layers[name]);
+        }
+
+        function setCurrentLayer(name) {
+            currentLayerName = name;
+            document.getElementById('current-layer').value = name;
+        }
+
+        function addNewLayer() {
+            const name = prompt("New layer name:", "New Layer");
+            if (!name || layers[name]) return;
+            layerData[name] = [];
+            createLayer(name);
+            renderLayerList();
+            setCurrentLayer(name);
+            saveData();
+        }
+
+        function deleteLayer(name) {
+            if (!confirm(`Delete layer ${name}?`)) return;
+            map.removeLayer(layers[name]);
+            delete layers[name];
+            delete layerData[name];
+            renderLayerList();
+            if (currentLayerName === name) setCurrentLayer(Object.keys(layers)[0] || "Default");
+            saveData();
+        }
+
+        function locateMe() { map.locate({setView:true, maxZoom:16}); }
+
+        function toggleMeasure() {
+            measureMode = !measureMode;
+            measurePoints = [];
+            alert(measureMode ? "Tap two points on the map" : "Measure mode off");
+        }
+
+        function handleMeasure(latlng) {
+            measurePoints.push(latlng);
+            L.marker(latlng).addTo(map).bindPopup("Measure point").openPopup();
+            if (measurePoints.length === 2) {
+                const dist = measurePoints[0].distanceTo(measurePoints[1]) / 1000;
+                alert(`Distance: ${dist.toFixed(2)} km`);
+                measurePoints = []; measureMode = false;
+            }
+        }
+
+        function exportData() {
+            const blob = new Blob([JSON.stringify(layerData, null, 2)], {type:"application/json"});
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "elysium-markers.geojson";
+            a.click();
+        }
+
+        function importData(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                try {
+                    layerData = JSON.parse(ev.target.result);
+                    Object.keys(layers).forEach(n => map.removeLayer(layers[n]));
+                    layers = {};
+                    Object.keys(layerData).forEach(n => createLayer(n));
+                    renderLayerList();
+                    saveData();
+                    alert("Imported!");
+                } catch(err) { alert("Invalid file"); }
+            };
+            reader.readAsText(file);
+        }
 
         window.onload = initMap;
     </script>
