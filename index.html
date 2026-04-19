@@ -17,7 +17,7 @@
     <div id="map"></div>
     
     <div class="sidebar">
-        <h3>🗺️ Elysium Offline Map (PMTiles)</h3>
+        <h3>🗺️ Elysium Offline Map</h3>
         <div id="layers-list"></div>
         <button onclick="addNewLayer()">+ New Layer</button>
         <button onclick="locateMe()">📍 GPS Location</button>
@@ -33,15 +33,13 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/protomaps-leaflet@4.0.1/dist/protomaps-leaflet.js"></script>
     
     <script>
-        const PMTILES_URL = './elysium-area.pmtiles';   // ← your file name
+        const TILE_URL = './tiles/{z}/{x}/{y}.png';   // uses your existing tiles folder
         const CENTER = [-30.47, 30.63];
         const START_ZOOM = 13;
 
-        let map, pmLayer;
-        let layers = {}, layerData = {}, currentLayerName = "Default";
+        let map, layers = {}, layerData = {}, currentLayerName = "Default";
         let measureMode = false, measurePoints = [];
 
         function loadData() {
@@ -56,10 +54,10 @@
         function initMap() {
             map = L.map('map').setView(CENTER, START_ZOOM);
             
-            // Load your PMTiles file
-            pmLayer = protomapsL.leafletLayer({
-                url: PMTILES_URL,
-                flavor: "light"        // change to "dark" if you prefer
+            L.tileLayer(TILE_URL, {
+                maxZoom: 17,
+                minZoom: 10,
+                attribution: 'Offline Map'
             }).addTo(map);
 
             loadData();
