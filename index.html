@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Elysium Offline Map</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin:0; padding:0; font-family: system-ui, sans-serif; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        .sidebar { position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.95); padding: 12px; border-radius: 8px; box-shadow: 0 2px 15px rgba(0,0,0,0.3); z-index: 1000; max-width: 270px; max-height: 85vh; overflow: auto; }
+        button, select { margin: 5px 0; padding: 8px; width: 100%; }
+        .layer-item { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="sidebar">
+        <h3>🗺️ Elysium Map (Offline Capable)</h3>
+        <div id="layers-list"></div>
+        <button onclick="addNewLayer()">+ New Layer</button>
+        <button onclick="locateMe()">📍 GPS Location</button>
+        <button onclick="toggleMeasure()">📏 Measure Distance</button>
+        
+        <select id="current-layer" onchange="setCurrentLayer(this.value)"></select>
+        
+        <button onclick="exportData()">Export Markers (GeoJSON)</button>
+        <button onclick="document.getElementById('import-file').click()">Import GeoJSON</button>
+        <input type="file" id="import-file" accept=".geojson" onchange="importData(event)" style="display:none;">
+        
+        <small style="display:block; margin-top:10px; color:#555;">Tap map to add marker to selected layer.<br>Markers saved in browser (localStorage).</small>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        // === CHANGE THIS FOR YOUR BASEMAP ===
+        // For raster tiles: './tiles/{z}/{x}/{y}.png'
+        // For PMTiles: use protomapsL (add the script tag and change below)
+        const TILE_URL = './tiles/{z}/{x}/{y}.png';   // raster example
+        const CENTER = [-30.47, 30.63];
+        const START_ZOOM = 13;
+
+        let map, layers = {}, layerData = {}, currentLayerName = "Default";
+        let measureMode = false, measurePoints = [];
+
+        function loadData() {
+            const saved = localStorage.getItem('elysiumMapData');
+            layerData = saved ? JSON.parse(saved) : {"Default": [], "Hiking": [], "Fishing": [], "Spots": []};
+        }
+
+        function saveData() {
+            localStorage.setItem('elysiumMapData', JSON.stringify(layerData));
+        }
+
+        function initMap() {
+            map = L.map('map').setView(CENTER, START_ZOOM);
+            
+            L.tileLayer(TILE_URL, {
+                maxZoom: 17,
+                minZoom: 10,
+                attribution: 'Offline tiles'
+            }).addTo(map);
+
+            loadData();
+            Object.keys(layerData).forEach(name => createLayer(name));
+            renderLayerList();
+            setCurrentLayer("Default");
+
+            map.on('click', e => {
+                if (measureMode) { handleMeasure(e.latlng); return; }
+                addMarker(e.latlng);
+            });
+        }
+
+        // (The rest of the functions — createLayer, addMarker, renderLayerList, toggleLayer, addNewLayer, deleteLayer, locateMe, toggleMeasure, handleMeasure, exportData, importData, saveNote, deleteMarker — are the same as in my previous raster HTML message. Copy them in if you need the full file.)
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
