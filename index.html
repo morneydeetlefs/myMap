@@ -5,37 +5,67 @@
     <title>Elysium Offline Map</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="manifest" href="manifest.json">
     <style>
-        body { margin:0; padding:0; font-family:system-ui,sans-serif; overflow:hidden; }
-        #map { position:absolute; top:0; bottom:0; left:0; right:0; }
-        .sidebar { position:absolute; top:10px; left:10px; background:rgba(255,255,255,0.95); padding:12px; border-radius:8px; box-shadow:0 2px 15px rgba(0,0,0,0.3); z-index:1000; max-width:270px; max-height:85vh; overflow:auto; }
-        button, select { margin:5px 0; padding:8px; width:100%; border-radius:4px; }
-        .layer-item { display:flex; align-items:center; gap:8px; margin:6px 0; }
+        body { 
+            margin:0; padding:0; font-family:system-ui,sans-serif; 
+            overflow:hidden; background:#111; color: white;
+        }
+        #map { 
+            position:absolute; top:0; bottom:0; left:0; right:0; 
+        }
+        .controls {
+            position: absolute; top: 10px; left: 10px; z-index: 1000;
+            background: rgba(0,0,0,0.88); color: white; border-radius: 10px; 
+            padding: 12px; min-width: 240px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        select, button { 
+            width: 100%; padding: 10px; margin: 6px 0; border-radius: 6px; 
+            background: #222; color: white; border: none; font-size: 15px;
+        }
+        button { background: #3388ff; font-weight: bold; }
+        button:active { background: #2266cc; }
+        .storage-info { 
+            font-size: 0.85em; color: #aaa; margin: 8px 0; line-height: 1.4;
+        }
+        .warning { color: #ffcc00; font-weight: bold; }
+        .layer-item {
+            display: flex; align-items: center; gap: 8px; 
+            padding: 8px 0; border-bottom: 1px solid #333;
+        }
     </style>
 </head>
 <body>
     <div id="map"></div>
     
-    <div class="sidebar">
-        <h3>🗺️ Elysium Offline Map</h3>
-        <div id="layers-list"></div>
-        <button onclick="addNewLayer()">+ New Layer</button>
-        <button onclick="locateMe()">📍 GPS Location</button>
-        <button onclick="toggleMeasure()">📏 Measure Distance</button>
+    <div class="controls">
+        <h3 style="margin:0 0 12px 0; color:#ddd;">🗺️ Elysium Offline Map</h3>
         
         <select id="current-layer" onchange="setCurrentLayer(this.value)"></select>
         
-        <button onclick="exportData()">Export Markers (GeoJSON)</button>
-        <button onclick="document.getElementById('import-file').click()">Import GeoJSON</button>
-        <input type="file" id="import-file" accept=".geojson" onchange="importData(event)" style="display:none;">
+        <button onclick="addNewLayer()">+ New Layer</button>
+        <button onclick="toggleMeasure()">📏 Measure Distance</button>
+        <button onclick="locateMe()">📍 My Location (GPS)</button>
         
-        <small style="display:block; margin-top:10px; color:#555;">Tap map to add marker.<br>All data saved in browser (works offline).</small>
+        <details style="margin-top:10px;">
+            <summary style="cursor:pointer; padding:8px; background:#222; border-radius:6px;">⚙️ Layers & Cache</summary>
+            <div id="layers-list" style="margin-top:8px;"></div>
+            
+            <button onclick="clearOldCache()" style="background:#cc4444; margin-top:12px;">
+                🧹 Clear Old Cache (30+ days)
+            </button>
+        </details>
+        
+        <div class="storage-info" id="storage-info">Storage used: calculating...</div>
+        
+        <button onclick="exportData()">Export Markers (GeoJSON)</button>
+        <button onclick="document.getElementById('import-file').click()">Import Markers</button>
+        <input type="file" id="import-file" accept=".geojson" onchange="importData(event)" style="display:none;">
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
     <script>
-        const TILE_URL = './tiles/{z}/{x}/{y}.png';   // uses your existing tiles folder
         const CENTER = [-30.47, 30.63];
         const START_ZOOM = 13;
 
@@ -52,12 +82,11 @@
         }
 
         function initMap() {
-            map = L.map('map').setView(CENTER, START_ZOOM);
+            map = L.map('map', { zoomControl: true }).setView(CENTER, START_ZOOM);
             
-            L.tileLayer(TILE_URL, {
-                maxZoom: 17,
-                minZoom: 10,
-                attribution: 'Offline Map'
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap'
             }).addTo(map);
 
             loadData();
@@ -69,6 +98,8 @@
                 if (measureMode) { handleMeasure(e.latlng); return; }
                 addMarker(e.latlng);
             });
+
+            initStorageMonitoring();
         }
 
         function createLayer(name) {
@@ -107,7 +138,11 @@
             Object.keys(layers).forEach(name => {
                 const div = document.createElement('div');
                 div.className = 'layer-item';
-                div.innerHTML = `<input type="checkbox" checked onchange="toggleLayer('${name}', this.checked)"> <span onclick="setCurrentLayer('${name}')">${name}</span> <button onclick="deleteLayer('${name}')" style="margin-left:auto">×</button>`;
+                div.innerHTML = `
+                    <input type="checkbox" checked onchange="toggleLayer('${name}', this.checked)">
+                    <span onclick="setCurrentLayer('${name}')" style="flex:1">${name}</span>
+                    <button onclick="deleteLayer('${name}')" style="background:none; color:#ff6666; border:none; font-size:1.4em;">×</button>
+                `;
                 cont.appendChild(div);
             });
         }
@@ -132,7 +167,7 @@
         }
 
         function deleteLayer(name) {
-            if (!confirm(`Delete layer ${name}?`)) return;
+            if (!confirm(`Delete layer "${name}" and all markers?`)) return;
             map.removeLayer(layers[name]);
             delete layers[name];
             delete layerData[name];
@@ -179,10 +214,67 @@
                     Object.keys(layerData).forEach(n => createLayer(n));
                     renderLayerList();
                     saveData();
-                    alert("Imported!");
-                } catch(err) { alert("Invalid file"); }
+                    alert("Imported successfully!");
+                } catch(err) { alert("Invalid GeoJSON file"); }
             };
             reader.readAsText(file);
+        }
+
+        // ================== STORAGE MONITORING ==================
+        async function updateStorageInfo() {
+            const infoEl = document.getElementById('storage-info');
+            if (!navigator.storage || !navigator.storage.estimate) {
+                infoEl.textContent = "Storage info not available";
+                return;
+            }
+            try {
+                const estimate = await navigator.storage.estimate();
+                const usedMB = (estimate.usage / (1024 * 1024)).toFixed(1);
+                let html = `Storage used: ${usedMB} MB`;
+                if (parseFloat(usedMB) > 150) {
+                    html += '<br><span class="warning">⚠️ Cache is large</span>';
+                }
+                infoEl.innerHTML = html;
+            } catch (e) {
+                infoEl.textContent = "Storage info unavailable";
+            }
+        }
+
+        function initStorageMonitoring() {
+            updateStorageInfo();
+            setInterval(updateStorageInfo, 8000);
+            map.on('moveend zoomend', () => setTimeout(updateStorageInfo, 1500));
+        }
+
+        // ================== CLEAR OLD CACHE ==================
+        async function clearOldCache() {
+            if (!('serviceWorker' in navigator)) {
+                alert("Service Worker not supported.");
+                return;
+            }
+            if (!confirm("Clear all cached map tiles older than 30 days?\n\nYou may need to re-download tiles when online again.")) {
+                return;
+            }
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                if (registration.active) {
+                    registration.active.postMessage({ action: 'clearOldCache' });
+                    alert("Cleanup started. Check console for progress.");
+                } else {
+                    alert("Service Worker not active yet. Refresh the page and try again.");
+                }
+            } catch (err) {
+                alert("Failed to clear cache: " + err.message);
+            }
+        }
+
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(() => console.log('Service Worker registered'))
+                    .catch(err => console.log('Service Worker failed:', err));
+            });
         }
 
         window.onload = initMap;
