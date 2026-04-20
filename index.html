@@ -7,38 +7,32 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="manifest" href="manifest.json">
     <style>
-        body { 
-            margin:0; padding:0; font-family:system-ui,sans-serif; 
-            overflow:hidden; background:#111; color: white;
-        }
-        #map { 
-            position:absolute; top:0; bottom:0; left:0; right:0; 
-        }
+        body { margin:0; padding:0; font-family:system-ui,sans-serif; overflow:hidden; background:#111; color:#fff; }
+        #map { position:absolute; top:0; bottom:0; left:0; right:0; }
         .controls {
-            position: absolute; top: 10px; left: 10px; z-index: 1000;
-            background: rgba(0,0,0,0.88); color: white; border-radius: 10px; 
-            padding: 12px; min-width: 240px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            position:absolute; top:10px; left:10px; z-index:1000;
+            background:rgba(0,0,0,0.88); border-radius:10px; padding:12px; min-width:240px;
+            box-shadow:0 4px 20px rgba(0,0,0,0.5);
         }
         select, button { 
-            width: 100%; padding: 10px; margin: 6px 0; border-radius: 6px; 
-            background: #222; color: white; border: none; font-size: 15px;
+            width:100%; padding:10px; margin:6px 0; border-radius:6px; 
+            background:#222; color:#fff; border:none; font-size:15px;
         }
-        button { background: #3388ff; font-weight: bold; }
-        button:active { background: #2266cc; }
-        .storage-info { 
-            font-size: 0.85em; color: #aaa; margin: 8px 0; line-height: 1.4;
-        }
-        .warning { color: #ffcc00; font-weight: bold; }
-        .layer-item {
-            display: flex; align-items: center; gap: 8px; 
-            padding: 8px 0; border-bottom: 1px solid #333;
-        }
+        button { background:#3388ff; font-weight:bold; }
+        button:active { background:#2266cc; }
+        .storage-info { font-size:0.85em; color:#aaa; margin:8px 0; line-height:1.4; }
+        .warning { color:#ffcc00; font-weight:bold; }
+        .layer-item { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #333; }
+        .toggle-btn { position:absolute; top:10px; right:10px; z-index:1001; background:#3388ff; color:white; border:none; border-radius:50%; width:40px; height:40px; font-size:20px; box-shadow:0 2px 10px rgba(0,0,0,0.4); }
     </style>
 </head>
 <body>
     <div id="map"></div>
     
-    <div class="controls">
+    <!-- Toggle button to hide/show controls -->
+    <button onclick="toggleControls()" class="toggle-btn" id="toggle-btn">☰</button>
+
+    <div class="controls" id="controls-panel">
         <h3 style="margin:0 0 12px 0; color:#ddd;">🗺️ Elysium Offline Map</h3>
         
         <select id="current-layer" onchange="setCurrentLayer(this.value)"></select>
@@ -71,6 +65,8 @@
 
         let map, layers = {}, layerData = {}, currentLayerName = "Default";
         let measureMode = false, measurePoints = [];
+        let locationMarker = null;           // persistent "You are here" marker
+        let controlsVisible = true;
 
         function loadData() {
             const saved = localStorage.getItem('elysiumMapData');
@@ -108,27 +104,44 @@
             if (layerData[name]) {
                 layerData[name].forEach(d => {
                     const m = L.marker([d.lat, d.lng], {draggable:true}).addTo(layers[name]);
-                    m.bindPopup(`<b>${name}</b><br><textarea>${d.note||''}</textarea><br><button onclick="saveNote(this)">Save</button> <button onclick="deleteMarker(this)">Delete</button>`);
+                    m.bindPopup(createPopupHTML(name, d.note || ""));
                     m.on('dragend', saveData);
                 });
             }
         }
 
+        function createPopupHTML(layerName, note) {
+            return `
+                <b>${layerName}</b><br>
+                <textarea style="width:100%;height:70px;">${note}</textarea><br>
+                <button onclick="saveNote(this)" style="margin-right:5px;">Save Note</button>
+                <button onclick="deleteThisMarker(this)" style="background:#cc4444;">Delete Marker</button>
+            `;
+        }
+
         function addMarker(latlng) {
             const marker = L.marker(latlng, {draggable:true}).addTo(layers[currentLayerName]);
-            marker.bindPopup(`<b>${currentLayerName}</b><br><textarea placeholder="Add note..."></textarea><br><button onclick="saveNote(this)">Save</button> <button onclick="deleteMarker(this)">Delete</button>`).openPopup();
+            marker.bindPopup(createPopupHTML(currentLayerName, "")).openPopup();
             marker.on('dragend', saveData);
+
             if (!layerData[currentLayerName]) layerData[currentLayerName] = [];
             layerData[currentLayerName].push({lat: latlng.lat, lng: latlng.lng, note: ""});
             saveData();
         }
 
-        window.saveNote = function(btn) { alert("Note saved!"); saveData(); };
-        window.deleteMarker = function(btn) {
+        window.saveNote = function(btn) {
+            const textarea = btn.parentNode.querySelector('textarea');
+            alert("Note saved!");
+            saveData();
+        };
+
+        window.deleteThisMarker = function(btn) {
             if (confirm("Delete this marker?")) {
-                const marker = btn.closest('.leaflet-popup')._source;
-                if (marker) marker.remove();
-                saveData();
+                const popup = btn.closest('.leaflet-popup');
+                if (popup && popup._source) {
+                    popup._source.remove();
+                    saveData();
+                }
             }
         };
 
@@ -141,7 +154,7 @@
                 div.innerHTML = `
                     <input type="checkbox" checked onchange="toggleLayer('${name}', this.checked)">
                     <span onclick="setCurrentLayer('${name}')" style="flex:1">${name}</span>
-                    <button onclick="deleteLayer('${name}')" style="background:none; color:#ff6666; border:none; font-size:1.4em;">×</button>
+                    <button onclick="deleteLayer('${name}')" style="background:none;color:#ff6666;border:none;font-size:1.4em;">×</button>
                 `;
                 cont.appendChild(div);
             });
@@ -176,7 +189,15 @@
             saveData();
         }
 
-        function locateMe() { map.locate({setView:true, maxZoom:16}); }
+        function locateMe() {
+            map.locate({setView: true, maxZoom: 16, enableHighAccuracy: true});
+            map.once('locationfound', e => {
+                if (locationMarker) locationMarker.remove();
+                locationMarker = L.marker(e.latlng, {
+                    icon: L.divIcon({className: 'current-location', html: '📍', iconSize: [30,30]})
+                }).addTo(map).bindPopup("You are here").openPopup();
+            });
+        }
 
         function toggleMeasure() {
             measureMode = !measureMode;
@@ -215,29 +236,20 @@
                     renderLayerList();
                     saveData();
                     alert("Imported successfully!");
-                } catch(err) { alert("Invalid GeoJSON file"); }
+                } catch(err) { alert("Invalid GeoJSON"); }
             };
             reader.readAsText(file);
         }
 
-        // ================== STORAGE MONITORING ==================
+        // ================== STORAGE & CACHE ==================
         async function updateStorageInfo() {
-            const infoEl = document.getElementById('storage-info');
-            if (!navigator.storage || !navigator.storage.estimate) {
-                infoEl.textContent = "Storage info not available";
-                return;
-            }
+            const el = document.getElementById('storage-info');
+            if (!navigator.storage?.estimate) return;
             try {
-                const estimate = await navigator.storage.estimate();
-                const usedMB = (estimate.usage / (1024 * 1024)).toFixed(1);
-                let html = `Storage used: ${usedMB} MB`;
-                if (parseFloat(usedMB) > 150) {
-                    html += '<br><span class="warning">⚠️ Cache is large</span>';
-                }
-                infoEl.innerHTML = html;
-            } catch (e) {
-                infoEl.textContent = "Storage info unavailable";
-            }
+                const est = await navigator.storage.estimate();
+                const used = (est.usage / (1024*1024)).toFixed(1);
+                el.innerHTML = `Storage used: ${used} MB` + (parseFloat(used) > 150 ? '<br><span class="warning">⚠️ Cache is large</span>' : '');
+            } catch(e) {}
         }
 
         function initStorageMonitoring() {
@@ -246,34 +258,29 @@
             map.on('moveend zoomend', () => setTimeout(updateStorageInfo, 1500));
         }
 
-        // ================== CLEAR OLD CACHE ==================
         async function clearOldCache() {
-            if (!('serviceWorker' in navigator)) {
-                alert("Service Worker not supported.");
-                return;
-            }
-            if (!confirm("Clear all cached map tiles older than 30 days?\n\nYou may need to re-download tiles when online again.")) {
-                return;
-            }
+            if (!confirm("Clear cached tiles older than 30 days?")) return;
             try {
-                const registration = await navigator.serviceWorker.ready;
-                if (registration.active) {
-                    registration.active.postMessage({ action: 'clearOldCache' });
-                    alert("Cleanup started. Check console for progress.");
-                } else {
-                    alert("Service Worker not active yet. Refresh the page and try again.");
+                const reg = await navigator.serviceWorker.ready;
+                if (reg.active) {
+                    reg.active.postMessage({action: 'clearOldCache'});
+                    alert("Cleanup started");
                 }
-            } catch (err) {
-                alert("Failed to clear cache: " + err.message);
-            }
+            } catch(err) { alert("Could not clear cache"); }
+        }
+
+        function toggleControls() {
+            controlsVisible = !controlsVisible;
+            document.getElementById('controls-panel').style.display = controlsVisible ? 'block' : 'none';
+            document.getElementById('toggle-btn').textContent = controlsVisible ? '☰' : '▶';
         }
 
         // Register Service Worker
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
-                    .then(() => console.log('Service Worker registered'))
-                    .catch(err => console.log('Service Worker failed:', err));
+                    .then(() => console.log('✅ Service Worker registered'))
+                    .catch(err => console.error('Service Worker failed:', err));
             });
         }
 
